@@ -175,4 +175,5 @@ def weights_init_normal(m):
 
 
 def print_log(log_path, msg):
+    print(str(msg))
     open(log_path, "a").write(str(msg) + "\n\n")
