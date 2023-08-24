@@ -38,14 +38,16 @@ parser.add_argument("--epoch", type=int, default=0, help="starting epoch")
 parser.add_argument(
     "--n_epochs", type=int, default=200, help="number of epochs of training"
 )
-parser.add_argument("--batchSize", type=int, default=1, help="size of the batches")
+parser.add_argument("--batchSize", type=int, default=1,
+                    help="size of the batches")
 parser.add_argument(
     "--dataroot",
     type=str,
     default="",
     help="root directory of the dataset",
 )
-parser.add_argument("--lr", type=float, default=0.0002, help="initial learning rate")
+parser.add_argument("--lr", type=float, default=0.0002,
+                    help="initial learning rate")
 parser.add_argument(
     "--decay_epoch",
     type=int,
@@ -75,6 +77,9 @@ parser.add_argument("--resume", action="store_true", help="resume")
 parser.add_argument(
     "--iter_loss", type=int, default=500, help="average loss for n iterations"
 )
+parser.add_argument(
+    "--count", type=int, default=-1, help="number of images to train on"
+)
 opt = parser.parse_args()
 
 # USR
@@ -90,7 +95,7 @@ opt.log_path = os.path.join("output", str(datetime.datetime.now()) + ".txt")
 if torch.cuda.is_available():
     opt.cuda = True
 
-opt.resume = False
+# opt.resume = False
 
 print(opt)
 
@@ -102,6 +107,7 @@ netD_A = Discriminator(opt.input_nc)
 netD_B = Discriminator(opt.output_nc)
 
 if opt.cuda:
+    # torch.cuda.set_device(1)
     netG_A2B.cuda()
     netG_B2A.cuda()
     netD_A.cuda()
@@ -124,20 +130,25 @@ optimizer_G = torch.optim.Adam(
     lr=opt.lr,
     betas=(0.5, 0.999),
 )
-optimizer_D_A = torch.optim.Adam(netD_A.parameters(), lr=opt.lr, betas=(0.5, 0.999))
-optimizer_D_B = torch.optim.Adam(netD_B.parameters(), lr=opt.lr, betas=(0.5, 0.999))
+optimizer_D_A = torch.optim.Adam(
+    netD_A.parameters(), lr=opt.lr, betas=(0.5, 0.999))
+optimizer_D_B = torch.optim.Adam(
+    netD_B.parameters(), lr=opt.lr, betas=(0.5, 0.999))
 
 lr_scheduler_G = torch.optim.lr_scheduler.LambdaLR(
-    optimizer_G, lr_lambda=LambdaLR(opt.n_epochs, opt.epoch, opt.decay_epoch).step
+    optimizer_G, lr_lambda=LambdaLR(
+        opt.n_epochs, opt.epoch, opt.decay_epoch).step
 )
 lr_scheduler_D_A = torch.optim.lr_scheduler.LambdaLR(
-    optimizer_D_A, lr_lambda=LambdaLR(opt.n_epochs, opt.epoch, opt.decay_epoch).step
+    optimizer_D_A, lr_lambda=LambdaLR(
+        opt.n_epochs, opt.epoch, opt.decay_epoch).step
 )
 lr_scheduler_D_B = torch.optim.lr_scheduler.LambdaLR(
-    optimizer_D_B, lr_lambda=LambdaLR(opt.n_epochs, opt.epoch, opt.decay_epoch).step
+    optimizer_D_B, lr_lambda=LambdaLR(
+        opt.n_epochs, opt.epoch, opt.decay_epoch).step
 )
 
-####### resume the training process
+# resume the training process
 if opt.resume:
     print
     "resume training:"
@@ -175,8 +186,12 @@ transforms_ = [  # transforms.Resize((opt.size, opt.size), Image.BICUBIC),
     transforms.ToTensor(),
     transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
 ]
+
+
+dataset = ImageDataset(
+    opt.dataroot, transforms_=transforms_, unaligned=True, count=opt.count)
 dataloader = DataLoader(
-    ImageDataset(opt.dataroot, transforms_=transforms_, unaligned=True),
+    dataset,
     batch_size=opt.batchSize,
     shuffle=True,
     num_workers=opt.n_cpu,
@@ -196,7 +211,8 @@ D_A_losses = []
 D_B_losses = []
 to_pil = transforms.ToPILImage()
 
-mask_queue = QueueMask(dataloader.__len__() / 4)
+# mask_queue = QueueMask(dataloader.__len__() / 4)
+mask_queue = QueueMask(dataset.__len__() / 4)
 open(opt.log_path, "w").write(str(opt) + "\n\n")
 
 print_log(opt.log_path, "Number of Batches: %d" % (dataloader.__len__()))
@@ -216,10 +232,12 @@ for epoch in range(opt.epoch, opt.n_epochs):
         # Identity loss
         # G_A2B(B) should equal B if real B is fed
         same_B = netG_A2B(real_B)
-        loss_identity_B = criterion_identity(same_B, real_B) * 5.0  # ||Gb(b)-b||1
+        loss_identity_B = criterion_identity(
+            same_B, real_B) * 5.0  # ||Gb(b)-b||1
         # G_B2A(A) should equal A if real A is fed, so the mask should be all zeros
         same_A = netG_B2A(real_A, mask_non_shadow)
-        loss_identity_A = criterion_identity(same_A, real_A) * 5.0  # ||Ga(a)-a||1
+        loss_identity_A = criterion_identity(
+            same_A, real_A) * 5.0  # ||Ga(a)-a||1
 
         # GAN loss
         fake_B = netG_A2B(real_A)
@@ -236,10 +254,12 @@ for epoch in range(opt.epoch, opt.n_epochs):
         recovered_A = netG_B2A(
             fake_B, mask_queue.last_item()
         )  # real shadow, false shadow free
-        loss_cycle_ABA = criterion_cycle(recovered_A, real_A) * 10.0  # ||Ga(Gb(a))-a||1
+        loss_cycle_ABA = criterion_cycle(
+            recovered_A, real_A) * 10.0  # ||Ga(Gb(a))-a||1
 
         recovered_B = netG_A2B(fake_A)
-        loss_cycle_BAB = criterion_cycle(recovered_B, real_B) * 10.0  # ||Gb(Ga(b))-b||1
+        loss_cycle_BAB = criterion_cycle(
+            recovered_B, real_B) * 10.0  # ||Gb(Ga(b))-b||1
 
         # Total loss
         loss_G = (
@@ -374,15 +394,18 @@ for epoch in range(opt.epoch, opt.n_epochs):
     torch.save(lr_scheduler_D_B.state_dict(), "output/lr_scheduler_D_B.pth")
 
     if (epoch + 1) % opt.snapshot_epochs == 0:
-        torch.save(netG_A2B.state_dict(), ("output/netG_A2B_%d.pth" % (epoch + 1)))
-        torch.save(netG_B2A.state_dict(), ("output/netG_B2A_%d.pth" % (epoch + 1)))
+        torch.save(netG_A2B.state_dict(),
+                   ("output/netG_A2B_%d.pth" % (epoch + 1)))
+        torch.save(netG_B2A.state_dict(),
+                   ("output/netG_B2A_%d.pth" % (epoch + 1)))
         torch.save(netD_A.state_dict(), ("output/netD_A_%d.pth" % (epoch + 1)))
         torch.save(netD_B.state_dict(), ("output/netD_B_%d.pth" % (epoch + 1)))
 
     epoch_end = time.time()
     print_log(
         opt.log_path,
-        "Epoch %d/%d, Time: %ds" % (epoch, opt.n_epochs, epoch_end - epoch_start),
+        "Epoch %d/%d, Time: %ds" % (epoch, opt.n_epochs,
+                                    epoch_end - epoch_start),
     )
     print("Epoch:{}".format(epoch))
 
